@@ -5,9 +5,9 @@
             [clojure.string :as str]))
 
 (defn send-message [message]
-  (let [json-str (json/generate-string message)
-        message-str (str "Content-Length: " (count json-str) "\r\n\r\n" json-str)]
-    (print message-str)
+  ;; Send newline-delimited JSON as per official MCP SDK
+  (let [json-str (json/generate-string message)]
+    (println json-str)
     (flush)))
 
 (defn send-response [request-id result]
@@ -27,12 +27,16 @@
                          :message message}}))
 
 (defn handle-initialize [request-id params]
-  ;; Basic initialize response with minimal capabilities
+  ;; Basic initialize response with server info and capabilities
   (send-response request-id
                  {:protocolVersion "2025-03-26"
                   :capabilities {:resources {}
                                  :prompts {}
-                                 :tools {}}}))
+                                 :tools {}}
+                  :serverInfo {:name "mcp-example"
+                              :version "1.0.0"}})
+  ;; Send initialized notification after successful initialization
+  (send-notification "notifications/initialized" {}))
 
 (defn handle-echo [request-id params]
   ;; Echo back the parameters as the result
@@ -72,26 +76,13 @@
     (catch Exception e
       (println "Error processing message:" message-str ", error:" (ex-message e)))))
 
-(defn read-jsonrpc-message
-  "Read a complete JSON-RPC message with Content-Length framing"
-  []
-
-  (try
-    ;; Read all input at once
-    (let [input (slurp System/in)]
-      ;; Split by the message separator (\r\n\r\n)
-      (when-let [[_ body] (str/split input #"\r\n\r\n" 2)]
-        body))
-    (catch Exception e
-      nil)))
-
 (defn -main [& args]
-  ;; Send initialized notification
-  (send-notification "notifications/initialized" {})
-
-  ;; Main message processing loop
-  (when-let [message-str (read-jsonrpc-message)]
-    (process-message message-str)))
+  ;; Main message processing loop - read newline-delimited JSON messages
+  (loop []
+    (when-let [line (read-line)]
+      (when (pos? (count line))
+        (process-message line))
+      (recur))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (apply -main *command-line-args*))
